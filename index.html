@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>浏览器状态监控</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0e17;
+    --card: #111827;
+    --border: #1e293b;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --green: #10b981;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --blue: #3b82f6;
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+  }
+
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    letter-spacing: -0.02em;
+  }
+
+  .subtitle {
+    color: var(--muted);
+    font-size: 0.875rem;
+    margin-bottom: 32px;
+  }
+
+  .status-bar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    background: var(--card);
+    border: 1px solid var(--border);
+    transition: all 0.3s;
+  }
+
+  .status-pill .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    transition: background 0.3s;
+  }
+
+  .status-pill.alert .dot { background: var(--red); }
+  .status-pill.alert { border-color: rgba(239, 68, 68, 0.4); color: var(--red); }
+
+  .log-container {
+    width: 100%;
+    max-width: 680px;
+  }
+
+  .log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .log-header span {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .log-header button {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .log-header button:hover {
+    border-color: var(--muted);
+    color: var(--text);
+  }
+
+  .log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .log-list::-webkit-scrollbar { width: 4px; }
+  .log-list::-webkit-scrollbar-track { background: transparent; }
+  .log-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .log-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    animation: slideIn 0.3s ease;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .log-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--red);
+  }
+
+  .log-body { flex: 1; }
+
+  .log-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+
+  .log-desc {
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  .log-time {
+    font-size: 0.7rem;
+    color: var(--muted);
+    white-space: nowrap;
+    padding-top: 2px;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 48px 20px;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+
+  .empty-state .icon { font-size: 2rem; margin-bottom: 12px; }
+
+  .alert-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: rgba(239, 68, 68, 0.15);
+    border-bottom: 1px solid rgba(239, 68, 68, 0.3);
+    backdrop-filter: blur(12px);
+    padding: 10px 20px;
+    text-align: center;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--red);
+    transform: translateY(-100%);
+    transition: transform 0.3s ease;
+    z-index: 100;
+  }
+
+  .alert-banner.show { transform: translateY(0); }
+
+  .counters {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 24px;
+  }
+
+  .counter {
+    text-align: center;
+  }
+
+  .counter .num {
+    font-size: 1.8rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+
+  .counter .label {
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+</style>
+</head>
+<body>
+
+<div class="alert-banner" id="alertBanner"></div>
+
+<h1>浏览器状态监控</h1>
+<p class="subtitle">红蓝对抗 · 行为检测系统</p>
+
+<div class="counters">
+  <div class="counter">
+    <div class="num" id="totalCount">0</div>
+    <div class="label">总事件</div>
+  </div>
+  <div class="counter">
+    <div class="num" id="tabCount">0</div>
+    <div class="label">切屏</div>
+  </div>
+  <div class="counter">
+    <div class="num" id="resizeCount">0</div>
+    <div class="label">窗口变动</div>
+  </div>
+  <div class="counter">
+    <div class="num" id="tamperCount" style="color: var(--amber)">0</div>
+    <div class="label">篡改检测</div>
+  </div>
+</div>
+
+<div class="status-bar">
+  <div class="status-pill" id="pillFocus">
+    <span class="dot"></span> 页面焦点
+  </div>
+  <div class="status-pill" id="pillFullscreen">
+    <span class="dot"></span> 全屏状态
+  </div>
+  <div class="status-pill" id="pillSize">
+    <span class="dot"></span> 窗口尺寸
+  </div>
+  <div class="status-pill" id="pillTamper">
+    <span class="dot"></span> 反篡改
+  </div>
+</div>
+
+<div class="log-container">
+  <div class="log-header">
+    <span>事件日志</span>
+    <button onclick="clearLog()">清空</button>
+  </div>
+  <div class="log-list" id="logList">
+    <div class="empty-state">
+      <div class="icon">&#128274;</div>
+      暂无事件，系统监控中...
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── Anti-Tamper: 反篡改检测系统 ───
+const TamperDetector = {
+  // 检测属性描述符是否被修改
+  checkPropertyDescriptor(obj, prop) {
+    try {
+      const desc = Object.getOwnPropertyDescriptor(obj, prop);
+      if (!desc || !desc.get) return { tampered: true, reason: 'getter被移除' };
+      const getterStr = desc.get.toString();
+      if (!getterStr.includes('[native code]')) {
+        return { tampered: true, reason: 'getter被替换为自定义函数' };
+      }
+      return { tampered: false };
+    } catch (e) {
+      return { tampered: true, reason: '检测异常: ' + e.message };
+    }
+  },
+
+  // 检测函数是否被代理/覆盖
+  checkFunction(obj, funcName) {
+    try {
+      const func = obj[funcName];
+      if (typeof func !== 'function') return { tampered: true, reason: `${funcName} 不是函数` };
+      const funcStr = func.toString();
+      if (!funcStr.includes('[native code]')) {
+        return { tampered: true, reason: `${funcName} 被替换` };
+      }
+      return { tampered: false };
+    } catch (e) {
+      return { tampered: true, reason: '检测异常: ' + e.message };
+    }
+  },
+
+  // 检测 visibilityState
+  checkVisibilityState() {
+    const result = { real: null, reported: null, tampered: false };
+
+    // 检查 getter 是否被修改
+    const descCheck = this.checkPropertyDescriptor(Document.prototype, 'visibilityState');
+    if (descCheck.tampered) {
+      result.tampered = true;
+      result.reason = descCheck.reason;
+    }
+
+    result.reported = document.visibilityState;
+    return result;
+  },
+
+  // 检测 hidden 属性
+  checkHidden() {
+    const result = { real: null, reported: null, tampered: false };
+
+    const descCheck = this.checkPropertyDescriptor(Document.prototype, 'hidden');
+    if (descCheck.tampered) {
+      result.tampered = true;
+      result.reason = descCheck.reason;
+    }
+
+    result.reported = document.hidden;
+    return result;
+  },
+
+  // 检测 hasFocus
+  checkHasFocus() {
+    const result = { tampered: false };
+
+    const funcCheck = this.checkFunction(Document.prototype, 'hasFocus');
+    if (funcCheck.tampered) {
+      result.tampered = true;
+      result.reason = funcCheck.reason;
+    }
+
+    // 额外检查：如果页面不可见但 hasFocus 返回 true，可能是欺骗
+    result.reported = document.hasFocus();
+    return result;
+  },
+
+  // 检测 addEventListener 是否被代理
+  checkAddEventListener() {
+    const result = { tampered: false };
+
+    const funcCheck = this.checkFunction(EventTarget.prototype, 'addEventListener');
+    if (funcCheck.tampered) {
+      result.tampered = true;
+      result.reason = funcCheck.reason;
+    }
+
+    return result;
+  },
+
+  // 检测窗口尺寸一致性
+  checkWindowSize() {
+    const result = { tampered: false, details: {} };
+
+    try {
+      const innerW = window.innerWidth;
+      const innerH = window.innerHeight;
+      const outerW = window.outerWidth;
+      const outerH = window.outerHeight;
+
+      // 检查 innerWidth/innerHeight 的 getter
+      const innerWDesc = Object.getOwnPropertyDescriptor(Window.prototype, 'innerWidth');
+      const innerHDesc = Object.getOwnPropertyDescriptor(Window.prototype, 'innerHeight');
+
+      if (innerWDesc && innerWDesc.get && !innerWDesc.get.toString().includes('[native code]')) {
+        result.tampered = true;
+        result.reason = 'innerWidth getter 被替换';
+      }
+      if (innerHDesc && innerHDesc.get && !innerHDesc.get.toString().includes('[native code]')) {
+        result.tampered = true;
+        result.reason = 'innerHeight getter 被替换';
+      }
+
+      // 逻辑检查：inner 不应该大于 outer
+      if (innerW > outerW || innerH > outerH) {
+        result.tampered = true;
+        result.reason = `inner(${innerW}x${innerH}) > outer(${outerW}x${outerH})`;
+      }
+
+      result.details = { innerW, innerH, outerW, outerH };
+    } catch (e) {
+      result.tampered = true;
+      result.reason = '检测异常';
+    }
+
+    return result;
+  },
+
+  // 综合检测
+  runAllChecks() {
+    const results = {
+      timestamp: new Date().toISOString(),
+      tampered: false,
+      checks: {}
+    };
+
+    results.checks.visibilityState = this.checkVisibilityState();
+    results.checks.hidden = this.checkHidden();
+    results.checks.hasFocus = this.checkHasFocus();
+    results.checks.addEventListener = this.checkAddEventListener();
+    results.checks.windowSize = this.checkWindowSize();
+
+    // 汇总
+    for (const [key, check] of Object.entries(results.checks)) {
+      if (check.tampered) {
+        results.tampered = true;
+      }
+    }
+
+    return results;
+  }
+};
+
+// ─── 状态管理 ───
+const state = {
+  total: 0,
+  tab: 0,
+  resize: 0,
+  tamper: 0,
+  logs: [],
+  initialWidth: window.innerWidth,
+  initialHeight: window.innerHeight,
+  lastTamperCheck: null,
+  tamperCheckInterval: null,
+};
+
+function updateCounters() {
+  document.getElementById('totalCount').textContent = state.total;
+  document.getElementById('tabCount').textContent = state.tab;
+  document.getElementById('resizeCount').textContent = state.resize;
+  document.getElementById('tamperCount').textContent = state.tamper;
+}
+
+function showAlert(text) {
+  const banner = document.getElementById('alertBanner');
+  banner.textContent = text;
+  banner.classList.add('show');
+  clearTimeout(banner._timer);
+  banner._timer = setTimeout(() => banner.classList.remove('show'), 3000);
+}
+
+function log(type, title, desc) {
+  const icons = {
+    tab: '&#9888;',
+    resize: '&#9634;',
+    blur: '&#128274;',
+    popup: '&#128279;',
+    fullscreen: '&#9974;',
+    devtools: '&#128295;',
+    tamper: '&#128683;',
+  };
+
+  state.total++;
+  if (type === 'tab') state.tab++;
+  if (type === 'resize') state.resize++;
+  if (type === 'tamper') state.tamper++;
+  updateCounters();
+
+  const now = new Date();
+  const time = now.toLocaleTimeString('zh-CN', { hour12: false });
+
+  const entry = { type, title, desc, time };
+  state.logs.unshift(entry);
+
+  // Update status pills
+  if (type === 'tab') {
+    const pill = document.getElementById('pillFocus');
+    pill.classList.add('alert');
+    pill.querySelector('.dot').style.background = '';
+    setTimeout(() => pill.classList.remove('alert'), 4000);
+  }
+
+  renderLog();
+}
+
+function renderLog() {
+  const list = document.getElementById('logList');
+  if (state.logs.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">&#128274;</div>暂无事件，系统监控中...</div>';
+    return;
+  }
+
+  list.innerHTML = state.logs.slice(0, 100).map(e => {
+    let icon = '&#128274;';
+    let iconBg = 'rgba(239, 68, 68, 0.1)';
+    let iconColor = 'var(--red)';
+
+    if (e.type === 'tab') { icon = '&#9888;'; }
+    else if (e.type === 'resize') { icon = '&#9634;'; }
+    else if (e.type === 'popup') { icon = '&#128279;'; }
+    else if (e.type === 'tamper') { icon = '&#128683;'; iconBg = 'rgba(245, 158, 11, 0.15)'; iconColor = 'var(--amber)'; }
+
+    return `
+    <div class="log-entry" ${e.type === 'tamper' ? 'style="border-color: rgba(245, 158, 11, 0.4)"' : ''}>
+      <div class="log-icon" style="background: ${iconBg}; color: ${iconColor}"><span>${icon}</span></div>
+      <div class="log-body">
+        <div class="log-title">${e.title}</div>
+        <div class="log-desc">${e.desc}</div>
+      </div>
+      <div class="log-time">${e.time}</div>
+    </div>
+    `;
+  }).join('');
+}
+
+function clearLog() {
+  state.logs = [];
+  state.total = 0;
+  state.tab = 0;
+  state.resize = 0;
+  updateCounters();
+  renderLog();
+}
+
+// ─── Detection: Tab / Window Visibility ───
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    log('tab', '页面不可见', '检测到用户切换标签页、最小化窗口或切换到其他应用程序');
+    showAlert('&#9888; 检测到切屏行为');
+  } else {
+    log('tab', '页面恢复可见', '用户已返回当前页面');
+  }
+});
+
+// 交叉验证: 即使事件被阻止，也可以通过其他方式检测
+// 定期检查 document.hasFocus 和 document.visibilityState 是否一致
+setInterval(() => {
+  const hasFocus = document.hasFocus();
+  const isVisible = !document.hidden;
+  const visState = document.visibilityState;
+
+  // 如果 hasFocus 返回 true 但 visibilityState 不是 visible，可能是篡改
+  if (hasFocus && visState !== 'visible') {
+    log('tamper', '状态不一致', `hasFocus=true 但 visibilityState=${visState}`);
+  }
+}, 3000);
+
+// ─── Detection: Window Blur / Focus ───
+window.addEventListener('blur', () => {
+  log('blur', '窗口失去焦点', '浏览器窗口焦点已转移，可能正在切换到其他程序');
+});
+
+// ─── Detection: Window Resize ───
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const dw = Math.abs(w - state.initialWidth);
+    const dh = Math.abs(h - state.initialHeight);
+
+    let action = '窗口大小已改变';
+    if (w !== state.initialWidth || h !== state.initialHeight) {
+      if (w <= 400 || h <= 300) {
+        action = '窗口被缩小（疑似最小化或分屏）';
+      } else if (w >= screen.availWidth * 0.95 && h >= screen.availHeight * 0.95) {
+        action = '窗口被最大化';
+      } else if (dw > 100 || dh > 100) {
+        action = '窗口尺寸大幅变动';
+      } else {
+        action = '窗口尺寸微调';
+      }
+    }
+
+    log('resize', action, `当前尺寸: ${w} × ${h}（变化: ${dw > 0 ? '+' : ''}${dw}, ${dh > 0 ? '+' : ''}${dh}）`);
+    state.initialWidth = w;
+    state.initialHeight = h;
+    showAlert('&#9634; ' + action);
+  }, 300);
+});
+
+// ─── Detection: Fullscreen Change ───
+document.addEventListener('fullscreenchange', () => {
+  if (!document.fullscreenElement) {
+    log('fullscreen', '退出全屏', '用户退出了全屏模式');
+  }
+});
+
+// ─── Detection: Popups / Window.open ───
+const origOpen = window.open;
+window.open = function(...args) {
+  log('popup', '弹窗拦截', `检测到弹窗请求: ${args[0] || '未知地址'}`);
+  showAlert('&#128279; 检测到弹窗行为');
+  return null;
+};
+
+// ─── Detection: DevTools ───
+(function detectDevTools() {
+  let threshold = 160;
+  let lastCheck = 0;
+
+  setInterval(() => {
+    const w = window.outerWidth - window.innerWidth > threshold;
+    const h = window.outerHeight - window.innerHeight > threshold;
+    if (w || h) {
+      const now = Date.now();
+      if (now - lastCheck > 5000) {
+        lastCheck = now;
+        log('devtools', '开发者工具疑似开启', `外层与内层尺寸差: 宽 ${window.outerWidth - window.innerWidth}px, 高 ${window.outerHeight - window.innerHeight}px`);
+      }
+    }
+  }, 1000);
+})();
+
+// ─── Detection: Keyboard Shortcuts ───
+document.addEventListener('keydown', (e) => {
+  // Alt+Tab / Cmd+Tab simulation detection
+  if (e.altKey && e.key === 'Tab') {
+    log('tab', 'Alt+Tab 按键', '检测到 Alt+Tab 切换窗口快捷键');
+    showAlert('&#9888; Alt+Tab 切屏');
+  }
+
+  // F11 fullscreen toggle
+  if (e.key === 'F11') {
+    log('fullscreen', 'F11 全屏切换', '用户按下 F11 切换全屏状态');
+  }
+
+  // Ctrl+W close tab attempt
+  if (e.ctrlKey && e.key === 'w') {
+    log('tab', 'Ctrl+W 关闭标签页', '检测到关闭标签页快捷键');
+    showAlert('&#9888; 尝试关闭标签页');
+  }
+});
+
+// ─── Detection: Context Menu ───
+document.addEventListener('contextmenu', (e) => {
+  log('devtools', '右键菜单', '检测到右键菜单被打开（可能用于"检查元素"）');
+});
+
+// ─── Anti-Tamper: 篡改检测逻辑 ───
+function runTamperCheck() {
+  const results = TamperDetector.runAllChecks();
+  state.lastTamperCheck = results;
+
+  // 更新状态指示器
+  const pill = document.getElementById('pillTamper');
+  const dot = pill.querySelector('.dot');
+
+  if (results.tampered) {
+    pill.classList.add('alert');
+    dot.style.background = '';
+  } else {
+    pill.classList.remove('alert');
+    dot.style.background = 'var(--green)';
+  }
+
+  // 记录检测结果
+  const checkDetails = [];
+  if (results.checks.visibilityState.tampered) {
+    checkDetails.push('visibilityState: ' + results.checks.visibilityState.reason);
+  }
+  if (results.checks.hidden.tampered) {
+    checkDetails.push('hidden: ' + results.checks.hidden.reason);
+  }
+  if (results.checks.hasFocus.tampered) {
+    checkDetails.push('hasFocus: ' + results.checks.hasFocus.reason);
+  }
+  if (results.checks.addEventListener.tampered) {
+    checkDetails.push('addEventListener: ' + results.checks.addEventListener.reason);
+  }
+  if (results.checks.windowSize.tampered) {
+    checkDetails.push('windowSize: ' + results.checks.windowSize.reason);
+  }
+
+  if (results.tampered) {
+    log('tamper', '检测到API篡改', checkDetails.join(' | '));
+    showAlert('&#128683; 检测到反检测插件');
+  }
+
+  return results;
+}
+
+// 初始检测
+runTamperCheck();
+
+// 每 2 秒检测一次
+state.tamperCheckInterval = setInterval(runTamperCheck, 2000);
+
+// ─── 额外检测: 检查 iframe 是否可用作真实状态源 ───
+function createTamperDetectionIframe() {
+  try {
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;border:none;';
+    iframe.src = 'about:blank';
+    document.body.appendChild(iframe);
+
+    // 从 iframe 获取真实状态
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+    const realHidden = iframeDoc.hidden;
+    const realVisibilityState = iframeDoc.visibilityState;
+
+    log('tamper', 'iframe 检测', `iframe.hidden=${realHidden}, iframe.visibilityState=${realVisibilityState}`);
+
+    // 如果 iframe 显示 hidden=true 但主页面显示 false，说明被篡改
+    if (realHidden === true && document.hidden === false) {
+      log('tamper', 'iframe 验证失败', '主页面声称可见但 iframe 检测到隐藏');
+    }
+
+    // 清理
+    setTimeout(() => {
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    }, 100);
+  } catch (e) {
+    log('tamper', 'iframe 检测失败', e.message);
+  }
+}
+
+// 5 秒后运行 iframe 检测
+setTimeout(createTamperDetectionIframe, 5000);
+
+// Initial status
+document.getElementById('pillSize').querySelector('.dot').style.background = 'var(--green)';
+</script>
+</body>
+</html>
