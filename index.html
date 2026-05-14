@@ -697,39 +697,47 @@ runTamperCheck();
 // 每 2 秒检测一次
 state.tamperCheckInterval = setInterval(runTamperCheck, 2000);
 
-// ─── 额外检测: 检查 iframe 是否可用作真实状态源 ───
-function createTamperDetectionIframe() {
+// ─── DNA 鉴定: 错误堆栈穿透检测 ───
+// 原理：原生 C++ getter 抛出的 Illegal invocation 堆栈极其干净（无JS行号）
+// 对手写的 JS 伪装函数一定会暴露脚本位置（chrome-extension, userscript, eval 等）
+function stackTraceDNA() {
   try {
-    const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;border:none;';
-    iframe.src = 'about:blank';
-    document.body.appendChild(iframe);
-
-    // 从 iframe 获取真实状态
-    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-    const realHidden = iframeDoc.hidden;
-    const realVisibilityState = iframeDoc.visibilityState;
-
-    log('tamper', 'iframe 检测', `iframe.hidden=${realHidden}, iframe.visibilityState=${realVisibilityState}`);
-
-    // 如果 iframe 显示 hidden=true 但主页面显示 false，说明被篡改
-    if (realHidden === true && document.hidden === false) {
-      log('tamper', 'iframe 验证失败', '主页面声称可见但 iframe 检测到隐藏');
-    }
-
-    // 清理
-    setTimeout(() => {
-      if (iframe.parentNode) {
-        iframe.parentNode.removeChild(iframe);
-      }
-    }, 100);
+    const getter = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState').get;
+    getter.call(window);
   } catch (e) {
-    log('tamper', 'iframe 检测失败', e.message);
+    if (e.stack) {
+      const stackLines = e.stack.split('\n');
+      const suspicious = [];
+
+      // 检测扩展注入痕迹
+      if (e.stack.includes('chrome-extension://')) suspicious.push('chrome-extension');
+      if (e.stack.includes('userscript')) suspicious.push('userscript');
+      if (e.stack.includes('moz-extension://')) suspicious.push('moz-extension');
+      if (e.stack.includes('safari-extension://')) suspicious.push('safari-extension');
+      if (e.stack.includes('tampermonkey')) suspicious.push('tampermonkey');
+      if (e.stack.includes('violentmonkey')) suspicious.push('violentmonkey');
+      if (e.stack.includes('greasemonkey')) suspicious.push('greasemonkey');
+
+      // 原生 Illegal invocation 调用栈极短（通常只有1-2层），超过3层说明被JS函数包了一层
+      if (stackLines.length > 3) suspicious.push(`调用栈过深(${stackLines.length}层)`);
+
+      // 检测 eval 注入（Tampermonkey 常用手段）
+      if (e.stack.includes('eval at')) suspicious.push('eval注入');
+      if (e.stack.includes('<anonymous>')) suspicious.push('anonymous函数');
+
+      if (suspicious.length > 0) {
+        log('tamper', 'DNA 鉴定阳性', `堆栈污染: ${suspicious.join(', ')} | 完整堆栈: ${stackLines.slice(0, 4).join(' <- ')}`);
+      } else {
+        log('tamper', 'DNA 鉴定阴性', `堆栈干净，层级: ${stackLines.length}`);
+      }
+    }
   }
 }
 
-// 5 秒后运行 iframe 检测
-setTimeout(createTamperDetectionIframe, 5000);
+// 8 秒后运行 DNA 鉴定（等对方脚本完成注入）
+setTimeout(stackTraceDNA, 8000);
+// 每 30 秒重新鉴定一次
+setInterval(stackTraceDNA, 30000);
 
 // Initial status
 document.getElementById('pillSize').querySelector('.dot').style.background = 'var(--green)';
