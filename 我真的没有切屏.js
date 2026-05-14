@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         我真的没有切屏！
-// @namespace    https://github.com/lanzeweie
+// @namespace    https://github.com/lanzeweie/no-tab-switch
 // @version      2.10
 // @description  我真的没有切屏！！！采用多重策略，从内核层面阻止浏览器将失焦或隐藏状态暴露给网站。尽最大可能伪造一直在窗口的假象。新增全屏拦截与伪造功能！
 // @author       lanzeweie@foxmail.com
