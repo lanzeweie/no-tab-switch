@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         我真的没有切屏！
 // @namespace    https://github.com/lanzeweie
-// @version      2.00
-// @description  我真的没有切屏！！！采用多重策略，从内核层面阻止浏览器将失焦或隐藏状态暴露给网站。尽最大可能伪造一直在窗口的假象
+// @version      2.10
+// @description  我真的没有切屏！！！采用多重策略，从内核层面阻止浏览器将失焦或隐藏状态暴露给网站。尽最大可能伪造一直在窗口的假象。新增全屏拦截与伪造功能！
 // @author       lanzeweie@foxmail.com
 // @match        *://*/*
 // @match        about:blank
@@ -142,14 +142,6 @@
         return originalAddEventListener.call(this, type, listener, options);
     });
     EventTarget.prototype.addEventListener = wrappedAddEventListener;
-
-    const originalFunctionToString = Function.prototype.toString;
-    Function.prototype.toString = function() {
-        if (this === wrappedAddEventListener || this === EventTarget.prototype.addEventListener) {
-            return originalToString.call(originalAddEventListener);
-        }
-        return originalFunctionToString.call(this);
-    };
 
     // 捕获阶段拦截器：同时在 window 和 document 上安装
     const _captureHandler = (event) => {
@@ -291,6 +283,218 @@
     const fakeHasFocus = function() { return true; };
     Object.defineProperty(fakeHasFocus, 'name', { value: 'hasFocus', configurable: true });
     registerFake(fakeHasFocus, `function hasFocus() { [native code] }`);
+
+    // ==========================================
+    // 第三层：全屏拦截与伪造系统
+    // 拦截强制全屏请求并伪造全屏状态，防止通过全屏检测切屏
+    // ==========================================
+    let fakeFullscreenElement = null;
+
+    // 需要覆盖的方法列表（包含旧版浏览器的兼容前缀）
+    const requestMethods = [
+        'requestFullscreen',
+        'webkitRequestFullscreen',
+        'mozRequestFullScreen',
+        'msRequestFullscreen'
+    ];
+
+    // 拦截请求全屏方法
+    requestMethods.forEach(method => {
+        if (Element.prototype[method]) {
+            const originalMethod = Element.prototype[method];
+
+            const fakeRequest = function(options) {
+                // 记录当前要求全屏的元素
+                fakeFullscreenElement = this;
+
+                // 延迟触发事件，模拟异步完成
+                setTimeout(() => {
+                    // 触发标准事件和兼容事件
+                    ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach(evtName => {
+                        document.dispatchEvent(new Event(evtName, { bubbles: true }));
+                    });
+                    addLog('system', '🖥️ 拦截全屏请求并伪造成功', '#007bff');
+                }, 10);
+
+                // requestFullscreen 返回 Promise
+                return Promise.resolve();
+            };
+
+            // 伪装 toString
+            Object.defineProperty(fakeRequest, 'name', { value: method, configurable: true });
+            Object.defineProperty(fakeRequest, 'length', { value: originalMethod.length, configurable: true });
+            registerFake(fakeRequest, originalMethod.toString());
+
+            Element.prototype[method] = fakeRequest;
+        }
+    });
+
+    // 拦截退出全屏方法
+    const exitMethods = [
+        'exitFullscreen',
+        'webkitExitFullscreen',
+        'mozCancelFullScreen',
+        'msExitFullscreen'
+    ];
+
+    exitMethods.forEach(method => {
+        if (Document.prototype[method]) {
+            const originalExit = Document.prototype[method];
+
+            const fakeExit = function() {
+                fakeFullscreenElement = null;
+                setTimeout(() => {
+                    ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange', 'MSFullscreenChange'].forEach(evtName => {
+                        document.dispatchEvent(new Event(evtName, { bubbles: true }));
+                    });
+                    addLog('system', '🖥️ 拦截退出全屏请求', '#007bff');
+                }, 10);
+                return Promise.resolve();
+            };
+
+            // 伪装 toString
+            Object.defineProperty(fakeExit, 'name', { value: method, configurable: true });
+            Object.defineProperty(fakeExit, 'length', { value: originalExit.length, configurable: true });
+            registerFake(fakeExit, originalExit.toString());
+
+            Document.prototype[method] = fakeExit;
+        }
+    });
+
+    // 伪造 Document 上的全屏状态属性
+    const fullscreenProperties = [
+        'fullscreenElement',
+        'webkitFullscreenElement',
+        'mozFullScreenElement',
+        'msFullscreenElement'
+    ];
+
+    fullscreenProperties.forEach(prop => {
+        try {
+            const getter = function() { return fakeFullscreenElement; };
+            Object.defineProperty(getter, 'name', { value: `get ${prop}`, configurable: true });
+            registerFake(getter, `function get ${prop}() { [native code] }`);
+            Object.defineProperty(Document.prototype, prop, {
+                get: getter,
+                set: undefined,
+                enumerable: true,
+                configurable: true
+            });
+        } catch(e) {}
+    });
+
+    // 伪造布尔值状态属性
+    const fullscreenBoolProps = [
+        'fullscreen',
+        'webkitIsFullScreen',
+        'mozFullScreen'
+    ];
+
+    fullscreenBoolProps.forEach(prop => {
+        try {
+            const getter = function() { return fakeFullscreenElement !== null; };
+            Object.defineProperty(getter, 'name', { value: `get ${prop}`, configurable: true });
+            registerFake(getter, `function get ${prop}() { [native code] }`);
+            Object.defineProperty(Document.prototype, prop, {
+                get: getter,
+                set: undefined,
+                enumerable: true,
+                configurable: true
+            });
+        } catch(e) {}
+    });
+
+    // 拦截全屏事件监听器
+    const fullscreenEvents = [
+        'fullscreenchange',
+        'webkitfullscreenchange',
+        'mozfullscreenchange',
+        'MSFullscreenChange',
+        'fullscreenerror',
+        'webkitfullscreenerror',
+        'mozfullscreenerror',
+        'MSFullscreenError'
+    ];
+
+    fullscreenEvents.forEach(eventType => {
+        originalAddEventListener.call(document, eventType, (event) => {
+            if (isEnabled && event.isTrusted) {
+                // 允许我们自己触发的事件通过
+                return;
+            }
+        }, true);
+    });
+
+    // 尺寸嗅探防护：当检测到全屏请求时，动态调整尺寸
+    const updateFullscreenSizes = () => {
+        if (fakeFullscreenElement) {
+            // 全屏状态下，innerWidth/innerHeight 应该等于 screen.width/screen.height
+            const screenW = window.screen ? window.screen.width : 1920;
+            const screenH = window.screen ? window.screen.height : 1080;
+            _defineProperty(window, 'innerWidth', screenW);
+            _defineProperty(window, 'innerHeight', screenH);
+            _defineProperty(window, 'outerWidth', screenW);
+            _defineProperty(window, 'outerHeight', screenH);
+        } else {
+            // 非全屏状态，恢复原始尺寸
+            _defineProperty(window, 'innerWidth', ACTUAL_WINDOW_SIZE.width);
+            _defineProperty(window, 'innerHeight', ACTUAL_WINDOW_SIZE.height);
+            _defineProperty(window, 'outerWidth', ACTUAL_WINDOW_SIZE.outerWidth);
+            _defineProperty(window, 'outerHeight', ACTUAL_WINDOW_SIZE.outerHeight);
+        }
+    };
+
+    // 监听我们自己的全屏事件来更新尺寸
+    document.addEventListener('fullscreenchange', updateFullscreenSizes);
+    document.addEventListener('webkitfullscreenchange', updateFullscreenSizes);
+    document.addEventListener('mozfullscreenchange', updateFullscreenSizes);
+    document.addEventListener('MSFullscreenChange', updateFullscreenSizes);
+
+    // CSS :fullscreen 伪类检测防护
+    // 拦截 getComputedStyle 以在伪全屏状态下返回正确的样式
+    try {
+        const originalGetComputedStyle = window.getComputedStyle;
+        window.getComputedStyle = function(element, pseudoElt) {
+            const style = originalGetComputedStyle.call(window, element, pseudoElt);
+
+            // 如果当前处于伪全屏状态，且查询的是全屏元素或其子元素
+            if (fakeFullscreenElement && element === fakeFullscreenElement) {
+                // 创建一个代理来拦截样式读取
+                return new Proxy(style, {
+                    get(target, prop) {
+                        // 如果查询 :fullscreen 伪类的样式
+                        if (pseudoElt === ':fullscreen' || pseudoElt === ':-webkit-full-screen' ||
+                            pseudoElt === ':-moz-full-screen' || pseudoElt === ':-ms-fullscreen') {
+                            // 返回一个表示"正在全屏"的样式对象
+                            // 通常全屏时元素会占满整个屏幕
+                            const value = target[prop];
+                            // 某些样式在全屏时会有特定值
+                            if (prop === 'position') return 'fixed';
+                            if (prop === 'top' || prop === 'left') return '0px';
+                            if (prop === 'width') return (window.screen ? window.screen.width : 1920) + 'px';
+                            if (prop === 'height') return (window.screen ? window.screen.height : 1080) + 'px';
+                            if (prop === 'zIndex') return '2147483647';
+                            return value;
+                        }
+                        return target[prop];
+                    }
+                });
+            }
+
+            return style;
+        };
+
+        // 伪装 toString
+        registerFake(window.getComputedStyle, originalGetComputedStyle.toString());
+        Object.defineProperty(window.getComputedStyle, 'name', { value: 'getComputedStyle', configurable: true });
+        Object.defineProperty(window.getComputedStyle, 'length', { value: originalGetComputedStyle.length, configurable: true });
+
+        addLog('system', '✓ CSS :fullscreen 伪类防护已启动', '#28a745');
+    } catch (e) {
+        addLog('system', '⚠️ CSS 伪类防护启动失败: ' + e.message, '#ffc107');
+    }
+
+    addLog('system', '✓ 全屏拦截系统已启动', '#28a745');
 
     // ==========================================
     // 覆盖原型链和后续创建的任何窗口

@@ -22,6 +22,9 @@
 
 恶心人的网课/企业培训挂机、带切屏警告的在线考试/笔试、切后台就自动暂停的视频网站、离开页面就不计时的阅读和签到、失去焦点就罢工的网页小游戏、会偷偷记录"未看屏幕"的在线会议
 
+切屏保护、切屏拦截、防切屏、防切屏检测、切屏不被发现、禁止切屏提醒、切屏作弊、切换标签页、最小化窗口、失去焦点、离开页面检测、网课挂机、视频不暂停、在线考试、企业培训挂机、页面不可见检测、visibilitychange拦截
+ 、窗口切换检测、页面失焦监控  
+
 ## 使用方法
 
 
@@ -55,6 +58,21 @@
 
 > **适用场景**：部分网站通过监听 DOM 属性变化或节点增删来辅助判断用户是否切屏，此策略可阻断该类间接检测手段。
 
+### 6. 全屏请求拦截与伪造
+拦截所有浏览器前缀的 `requestFullscreen` 和 `exitFullscreen` 方法。当网站请求全屏时，不实际执行全屏操作，但返回成功的 Promise，并手动触发 `fullscreenchange` 事件，让网站误以为全屏已成功。同时记录虚假的全屏目标元素，伪造 `document.fullscreenElement`、`document.fullscreen` 等状态属性。
+
+> **适用场景**：在线考试系统强制全屏监控、视频网站全屏播放检测、需要全屏状态才能继续操作的网页应用。
+
+### 7. CSS :fullscreen 伪类检测防护
+拦截 `window.getComputedStyle` 方法，当处于伪全屏状态时，对全屏元素的 `:fullscreen` 伪类样式查询返回全屏应有的样式值（如 `position: fixed`、宽高等于屏幕尺寸等），防止网站通过 CSS 伪类样式变化来验证全屏状态的真实性。
+
+> **适用场景**：高级防作弊系统通过 `getComputedStyle(el, ':fullscreen')` 检查元素背景色或布局变化来判断是否真正进入全屏的场景。
+
+### 8. 尺寸嗅探防护
+当检测到全屏请求时，动态将 `window.innerWidth`/`innerHeight` 调整为等于 `screen.width`/`screen.height`，并触发 `resize` 事件。退出全屏时恢复原始尺寸。防止网站通过 `window.innerWidth === screen.width` 的尺寸比对来判断全屏状态的真实性。
+
+> **适用场景**：网站通过比较窗口尺寸与屏幕分辨率来验证全屏状态的场景，如"窗口必须占满整个屏幕才算全屏"的检测逻辑。
+
 ## 开发/测试
 项目中 index.html 可进行模拟检测，内置以下检测机制：
 
@@ -64,10 +82,14 @@
 | 窗口焦点 | 监听 `window.blur` 事件，检测窗口焦点转移 |
 | 窗口尺寸 | 监听 `window.resize` 事件，识别最小化、分屏、最大化等行为 |
 | 全屏变化 | 监听 `fullscreenchange` 事件，检测退出全屏行为 |
+| 全屏状态验证 | 检查 `document.fullscreenElement` 和 `document.fullscreen` 属性，验证全屏状态是否真实 |
+| CSS 伪类检测 | 通过 `getComputedStyle(el, ':fullscreen')` 检查全屏伪类样式是否生效 |
+| 尺寸一致性 | 比对 `window.innerWidth` 与 `screen.width`，验证全屏时窗口尺寸是否等于屏幕尺寸 |
 | 弹窗请求 | 重写 `window.open`，拦截并记录弹窗调用 |
 | 开发者工具 | 通过 `outerWidth - innerWidth` 差值推断 DevTools 开启状态 |
 | 键盘快捷键 | 监听 `keydown`，检测 Alt+Tab、F11、Ctrl+W 等切屏相关快捷键 |
 | 右键菜单 | 监听 `contextmenu` 事件，检测"检查元素"入口 |
-| API 篡改检测 | 每 2 秒检查 `visibilityState`、`hidden`、`hasFocus` 等属性 getter 是否被替换为非原生函数 |
-| 状态交叉验证 | 定时比对 `hasFocus()` 与 `visibilityState` 返回值的一致性 |
-| iframe 基准校验 | 通过隐藏 iframe 获取真实页面状态，与主页面状态进行比对 |
+| API 篡改检测 | 每 2 秒检查 `visibilityState`、`hidden`、`hasFocus`、`addEventListener`、`innerWidth`/`innerHeight`、`fullscreenElement` 等属性 getter 是否被替换为非原生函数 |
+| 状态交叉验证 | 每 3 秒比对 `hasFocus()` 与 `visibilityState` 返回值的一致性，`hasFocus=true` 但 `visibilityState≠visible` 即判定异常 |
+| DNA 鉴定（堆栈穿透） | 利用原生 C++ getter 的 `Illegal invocation` 错误堆栈特征，检测扩展注入痕迹（chrome-extension、userscript、Tampermonkey 等），堆栈过深或有 eval 注入即判定阳性 |
+| 考试模式 | 一键进入全屏考试模式，监控退出全屏次数（上限 3 次），超时未恢复全屏自动强制切回，超出上限强制终止 |

@@ -231,6 +231,21 @@
 <h1>浏览器状态监控</h1>
 <p class="subtitle">红蓝对抗 · 行为检测系统</p>
 
+<div style="margin-bottom: 24px;">
+  <button id="examBtn" onclick="enterExamMode()" style="
+    background: linear-gradient(135deg, var(--blue), #2563eb);
+    color: white;
+    border: none;
+    padding: 12px 28px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+  ">进入考试模式</button>
+</div>
+
 <div class="counters">
   <div class="counter">
     <div class="num" id="totalCount">0</div>
@@ -741,6 +756,95 @@ setInterval(stackTraceDNA, 30000);
 
 // Initial status
 document.getElementById('pillSize').querySelector('.dot').style.background = 'var(--green)';
+
+// ─── 考试模式 ───
+const examState = {
+  active: false,
+  exitCount: 0,
+  maxExits: 3, // 允许退出全屏的次数
+  exitTimer: null,
+};
+
+function enterExamMode() {
+  const btn = document.getElementById('examBtn');
+
+  if (examState.active) {
+    exitExamMode();
+    return;
+  }
+
+  // 进入全屏
+  const docEl = document.documentElement;
+  if (docEl.requestFullscreen) {
+    docEl.requestFullscreen();
+  } else if (docEl.webkitRequestFullscreen) {
+    docEl.webkitRequestFullscreen();
+  } else if (docEl.msRequestFullscreen) {
+    docEl.msRequestFullscreen();
+  }
+
+  examState.active = true;
+  examState.exitCount = 0;
+  btn.textContent = '退出考试模式';
+  btn.style.background = 'linear-gradient(135deg, var(--red), #dc2626)';
+  btn.style.boxShadow = '0 2px 8px rgba(239, 68, 68, 0.3)';
+
+  log('fullscreen', '考试模式已启动', '全屏模式已启用，将监控切屏行为');
+  showAlert('&#127891; 考试模式已启动，禁止切屏');
+
+  // 监听全屏变化
+  document.addEventListener('fullscreenchange', onExamFullscreenChange);
+}
+
+function exitExamMode() {
+  const btn = document.getElementById('examBtn');
+
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  }
+
+  examState.active = false;
+  btn.textContent = '进入考试模式';
+  btn.style.background = 'linear-gradient(135deg, var(--blue), #2563eb)';
+  btn.style.boxShadow = '0 2px 8px rgba(59, 130, 246, 0.3)';
+
+  log('fullscreen', '考试模式已结束', `切屏次数: ${examState.exitCount}`);
+  document.removeEventListener('fullscreenchange', onExamFullscreenChange);
+}
+
+function onExamFullscreenChange() {
+  if (!examState.active) return;
+
+  if (!document.fullscreenElement) {
+    // 用户退出了全屏
+    examState.exitCount++;
+
+    log('tab', `警告: 退出全屏 (${examState.exitCount}/${examState.maxExits})`, '考试期间禁止退出全屏！');
+    showAlert(`&#9888; 警告: 检测到退出全屏 (${examState.exitCount}/${examState.maxExits})`);
+
+    if (examState.exitCount >= examState.maxExits) {
+      // 超过最大退出次数，强制结束考试
+      log('tamper', '考试强制终止', `退出全屏次数超过上限 ${examState.maxExits} 次`);
+      showAlert('&#128683; 考试已强制终止：多次退出全屏');
+      exitExamMode();
+      return;
+    }
+
+    // 3秒内必须回到全屏，否则记录违规
+    clearTimeout(examState.exitTimer);
+    examState.exitTimer = setTimeout(() => {
+      if (examState.active && !document.fullscreenElement) {
+        log('tamper', '未及时返回全屏', '退出全屏超过3秒未恢复');
+        // 尝试强制回到全屏
+        document.documentElement.requestFullscreen?.();
+      }
+    }, 3000);
+  } else {
+    // 用户回到了全屏
+    clearTimeout(examState.exitTimer);
+    log('fullscreen', '已恢复全屏', '考试继续进行中');
+  }
+}
 </script>
 </body>
 </html>
