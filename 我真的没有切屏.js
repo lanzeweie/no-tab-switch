@@ -199,7 +199,7 @@
             const saved = localStorage.getItem(STORAGE_KEY);
             if (saved) return JSON.parse(saved);
         } catch (e) {}
-        return { advancedGhostMode: true, defaultUIVisible: false };
+        return { advancedGhostMode: false, defaultUIVisible: false };
     };
     const saveSettings = (settings) => {
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch (e) {}
